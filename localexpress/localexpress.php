@@ -3,7 +3,7 @@
 Plugin Name: Localexpress plugin
 Plugin URI: http://github.com/Localexpress/localexpress-woocommerce
 Description: A localexpress plugin for calculate and check if available
-Version: 1.0.0
+Version: 1.0.1
 Author: Hans Broeke Boxture B.V.
 Author URI: http://boxture.com
 License: GPL2
@@ -134,89 +134,88 @@ if ( in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', g
                   $api_boxture   = $this->sentJSON("https://api.boxture.com/convert_address.php",json_encode(array("postal_code" => $to['postcode'],"address"=> $to['address'],"iso_country_code"=> $to['country'])));
                   $json_boxture  = json_decode($api_boxture['result'],true);
                   if(!empty($json_boxture['lat'])){
-                     $return_av        = $this->sentBOXJSON("https://api".($this->settings['qa']=='yes' ? "-qa" : "-new").".boxture.com/available_features?latitude=".$json_boxture['lat']."&purpose=pickup&longitude=".$json_boxture['lon'],$this->settings['APIkey']);
-                     $json_boxture_av  = json_decode($return['result'],true);
+                     $return_av        = $this->sentBOXJSON("https://api".($this->settings['qa']=='yes' ? "-qa" : "-new").".boxture.com/available_features?latitude=".$json_boxture['lat']."&purpose=dropoff&longitude=".$json_boxture['lon'],$this->settings['APIkey']);
+                     if($return_av['info']['http_code']=='404' || $return_av['info']['http_code']=='422')
+                        return false;
+                     $json_boxture_av  = json_decode($return_av['result'],true);                     
                      $longitude        = $json_boxture['lon'];
-                     $latitude         = $json_boxture['lat']; 
-                     $return           = (($return['info']['http_code']=='404' || $return['info']['http_code']=='422') ? false : true);
+                     $latitude         = $json_boxture['lat'];
+                  } else
+                     return false;
+                  $value   = 0;
+                  $weight  = 0;
+                  $orderLines = (array)$package["contents"];
+                  foreach($orderLines as $ID => $orderLine){
+                     $data = (array)$orderLine['data'];
+                     if($data['virtual'] =='no'){
+                        $value   += $orderLine["line_total"];
+                        $weight  += $orderLine["weight"];
+                     }
                   }
-                  if($return){
-                     $value   = 0;
-                     $weight  = 0;
-                     $orderLines = (array)$package["contents"];
-                     foreach($orderLines as $ID => $orderLine){
-                        $data = (array)$orderLine['data'];
-                        if($data['virtual'] =='no'){
-                           $value   += $orderLine["line_total"];
-                           $weight  += $orderLine["weight"];
-                        }
-                     }
-                     $json = array(
-                        "service_type" => "",
-                        "human_id" => null,
-                        "state" => null,
-                        "weight" => $weight,
-                        "value" => $value,
-                        "quantity" => 1,
-                        "insurance" => false,
-                        "dimensions" => array("width" => $this->settings['width'],"height" => $this->settings["height"],"length" => $this->settings['"length']),
+                  $json = array(
+                     "service_type" => "",
+                     "human_id" => null,
+                     "state" => null,
+                     "weight" => $weight,
+                     "value" => $value,
+                     "quantity" => 1,
+                     "insurance" => false,
+                     "dimensions" => array("width" => $this->settings['width'],"height" => $this->settings["height"],"length" => $this->settings['"length']),
+                     "comments" => "",
+                     "customer_email" => "",
+                     "origin" =>  array(
+                        "country" => $this->country[ucwords($from['country'])],
+                        "formatted_address" => $from['street']." ".$from['housenr']."\n".$from['zipcode']." ".$from['city']."\n".$this->country[ucwords($from['country'])],
+                        "iso_country_code" => ucwords($from['country']),
+                        "locality" => $from['city'],
+                        "postal_code" => $from['zipcode'],
+                        "sub_thoroughfare" => $from['housenr'],
+                        "thoroughfare" => $from['street'],
+                        "contact" => "",
+                        "email" => $from['email'],
+                        "mobile" => $from['phone'],
                         "comments" => "",
-                        "customer_email" => "",
-                        "origin" =>  array(
-                           "country" => $this->country[ucwords($from['country'])],
-                           "formatted_address" => $from['street']." ".$from['housenr']."\n".$from['zipcode']." ".$from['city']."\n".$this->country[ucwords($from['country'])],
-                           "iso_country_code" => ucwords($from['country']),
-                           "locality" => $from['city'],
-                           "postal_code" => $from['zipcode'],
-                           "sub_thoroughfare" => $from['housenr'],
-                           "thoroughfare" => $from['street'],
-                           "contact" => "",
-                           "email" => $from['email'],
-                           "mobile" => $from['phone'],
-                           "comments" => "",
-                           "company" => $from['name'],
-                        ),
-                        "destination" => array(
-                           "country" => $this->country[$to['country']],
-                           "formatted_address" => $to['address'].(empty($to['address_2'])?"":$to['address_2']."\n")."\n".$to['postal_code']." ".$to['city']."\n".$this->country[$to['country']],
-                           "iso_country_code" => $to['country'],
-                           "locality" => $to['city'],
-                           "postal_code" => $to['postcode'],
-                           "sub_thoroughfare" => $json_boxture['subThoroughfare'],
-                           "thoroughfare" => $json_boxture['thoroughfare'],
-                           "contact" => $to['name'],
-                           "email" => "noreply@boxture.com",
-                           "mobile" => "",
-                           "comments" => "",
-                           "company" => $to['company_name']
-                        ),
-                        "waybill_nr" => null,
-                        "vehicle_type" => "bicycle"
-                     );
-                     
-                     $json = json_encode(array("shipment_quote" => $json));
-      
-                     $api_local_express_q    = $this->sentBOXJSON("https://api".($this->settings['qa']=='yes' ? "-qa" : "-new").".boxture.com/shipment_quotes",$this->settings['APIkey'],$json);
-                     $json_local_express_q   = json_decode($api_local_express_q['result'],true);
-                                    
-                     if(empty($this->settings['price'])){
-                        $price = $json_local_express_q['shipment_quote']['price'];
-                     } else {
-                        $price = $this->settings['price'];
-                     }
-                     
-                     $rate = array(
-      						'id' => $this->id,
-      						'label' => $this->title,
-      						'cost' => $price,
-      						'calc_tax' => 'per_item'
-      					);
-      
-      					// Register the rate
-      					$this->add_rate( $rate );
-      				}
+                        "company" => $from['name'],
+                     ),
+                     "destination" => array(
+                        "country" => $this->country[$to['country']],
+                        "formatted_address" => $to['address'].(empty($to['address_2'])?"":$to['address_2']."\n")."\n".$to['postal_code']." ".$to['city']."\n".$this->country[$to['country']],
+                        "iso_country_code" => $to['country'],
+                        "locality" => $to['city'],
+                        "postal_code" => $to['postcode'],
+                        "sub_thoroughfare" => $json_boxture['subThoroughfare'],
+                        "thoroughfare" => $json_boxture['thoroughfare'],
+                        "contact" => $to['name'],
+                        "email" => "noreply@boxture.com",
+                        "mobile" => "",
+                        "comments" => "",
+                        "company" => $to['company_name']
+                     ),
+                     "waybill_nr" => null,
+                     "vehicle_type" => "bicycle"
+                  );
+                  
+                  $json = json_encode(array("shipment_quote" => $json));
+   
+                  $api_local_express_q    = $this->sentBOXJSON("https://api".($this->settings['qa']=='yes' ? "-qa" : "-new").".boxture.com/shipment_quotes",$this->settings['APIkey'],$json);
+                  $json_local_express_q   = json_decode($api_local_express_q['result'],true);
+                                 
+                  if(empty($this->settings['price'])){
+                     $price = $json_local_express_q['shipment_quote']['price'];
+                  } else {
+                     $price = $this->settings['price'];
+                  }
+
+                  $rate = array(
+   						'id' => $this->id,
+   						'label' => $this->title,
+   						'cost' => $price,
+   						'calc_tax' => 'per_item'
+   					);
+   
+   					// Register the rate
+   					$this->add_rate( $rate );
                }
-					
 				}
 				
 				private function sentJSON($url,$post=false,$debug=false){
